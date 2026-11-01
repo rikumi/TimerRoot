@@ -1,4 +1,66 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <resources>
     <string name="app_name">TimerRoot</string>
+
+    <string name="action_load_ksu">Load KernelSU</string>
+    <string name="action_loading_ksu">Loading KernelSU… %1$ds</string>
+    <string name="action_stop">Stop</string>
+    <string name="action_reboot">Reboot</string>
+    <string name="action_run">Run</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_get_root">Get root shell</string>
+    <string name="action_running">Running…</string>
+    <string name="action_copy">Copy</string>
+    <string name="action_close">Close</string>
+
+    <string name="summary_reboot">Clears parked processes and KernelSU</string>
+    <string name="hint_first_run">First run: allow Shizuku, then press Prepare. The exploit needs the shell user, so it runs through Shizuku.</string>
+
+    <string name="pref_shizuku">Shizuku</string>
+    <string name="pref_shizuku_running_bound">Running · bound</string>
+    <string name="pref_shizuku_running_unbound">Running · not bound</string>
+    <string name="pref_shizuku_start">Start Shizuku to continue</string>
+    <string name="pref_prepare">Prepare</string>
+    <string name="pref_prepare_summary">Extract the exploit and conf to /data/local/tmp</string>
+    <string name="pref_diagnose">Diagnose</string>
+    <string name="pref_diagnose_summary">Run timer ids to discover trace ids (safe)</string>
+    <string name="pref_log">Log</string>
+    <string name="pref_log_summary">Open the session log</string>
+
+    <string name="status_jailbreak_title">Jailbreak mode</string>
+    <string name="status_jailbreak_summary">KernelSU loaded · su in u:r:ksu:s0 · gone after reboot</string>
+    <string name="status_root_title">Root shell</string>
+    <string name="status_root_summary">uid=0 · u:r:shell:s0 · gone after reboot</string>
+    <string name="status_ready_title">Ready</string>
+    <string name="status_ready_summary">Shizuku connected · no root yet</string>
+    <string name="status_not_connected_title">Not connected</string>
+    <string name="status_connecting">Shizuku is running · connecting…</string>
+    <string name="status_grant_permission">Shizuku is running · grant permission</string>
+    <string name="status_start_shizuku">Tap to start Shizuku</string>
+
+    <string name="info_device">Device</string>
+    <string name="info_kernel">Kernel</string>
+    <string name="info_ksud">ksud</string>
+    <string name="info_kernelsu">KernelSU</string>
+    <string name="info_selinux">SELinux</string>
+    <string name="info_seccomp">Seccomp</string>
+    <string name="info_kernelsu_active">jailbreak mode (u:r:ksu:s0)</string>
+
+    <string name="dialog_root_title">Get a root shell?</string>
+    <string name="dialog_root_message">Runs CVE-2026-98260 once and keeps a uid=0 shell open.\n\n- On a failed attempt the process is parked until you reboot\n- Root disappears when you reboot\n- Do not use the device while it runs</string>
+    <string name="dialog_ksu_title">Load KernelSU?</string>
+    <string name="dialog_ksu_message">Late-loads ksud through a fake credential.\n\n- On success su works in u:r:ksu:s0\n- The parent process parks; reboot to clean up\n- Do not use the device while it runs</string>
+    <string name="dialog_reboot_title">Reboot the device?</string>
+    <string name="dialog_reboot_message">This is the only way to clean up parked processes.</string>
+
+    <string name="toast_start_shizuku_first">Start Shizuku first</string>
+    <string name="toast_connecting">Connecting to Shizuku…</string>
+    <string name="toast_preparing">Preparing…</string>
+    <string name="toast_ksu_loaded">KernelSU loaded (jailbreak mode)</string>
+    <string name="toast_ksu_failed">KernelSU failed: %1$s</string>
+    <string name="toast_bind_first">Bind the service first</string>
+    <string name="toast_prepare_failed">Prepare failed: %1$s</string>
+    <string name="toast_reboot_failed">Reboot failed: %1$s</string>
+    <string name="toast_shizuku_not_installed">Shizuku is not installed</string>
+    <string name="toast_shizuku_launch_failed">Failed to launch Shizuku</string>
 </resources>

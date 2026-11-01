@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<resources>
+    <string name="app_name">TimerRoot</string>
+
+    <string name="action_load_ksu">加载 KernelSU</string>
+    <string name="action_loading_ksu">正在加载 KernelSU… %1$ds</string>
+    <string name="action_stop">停止</string>
+    <string name="action_reboot">重启</string>
+    <string name="action_run">运行</string>
+    <string name="action_cancel">取消</string>
+    <string name="action_get_root">获取 Root Shell</string>
+    <string name="action_running">运行中…</string>
+    <string name="action_copy">复制</string>
+    <string name="action_close">关闭</string>
+
+    <string name="summary_reboot">清理驻留进程与 KernelSU</string>
+    <string name="hint_first_run">首次使用：先授权 Shizuku，再点击“准备”。漏洞需要 shell 用户身份，因此通过 Shizuku 运行。</string>
+
+    <string name="pref_shizuku">Shizuku</string>
+    <string name="pref_shizuku_running_bound">运行中 · 已绑定</string>
+    <string name="pref_shizuku_running_unbound">运行中 · 未绑定</string>
+    <string name="pref_shizuku_start">启动 Shizuku 以继续</string>
+    <string name="pref_prepare">准备</string>
+    <string name="pref_prepare_summary">解压漏洞程序与配置到 /data/local/tmp</string>
+    <string name="pref_diagnose">诊断</string>
+    <string name="pref_diagnose_summary">运行 timer ids 以发现 trace id（安全）</string>
+    <string name="pref_log">日志</string>
+    <string name="pref_log_summary">打开本次会话日志</string>
+
+    <string name="status_jailbreak_title">越狱模式</string>
+    <string name="status_jailbreak_summary">KernelSU 已加载 · su 运行于 u:r:ksu:s0 · 重启后失效</string>
+    <string name="status_root_title">Root Shell</string>
+    <string name="status_root_summary">uid=0 · u:r:shell:s0 · 重启后失效</string>
+    <string name="status_ready_title">就绪</string>
+    <string name="status_ready_summary">Shizuku 已连接 · 尚未获取 Root</string>
+    <string name="status_not_connected_title">未连接</string>
+    <string name="status_connecting">Shizuku 运行中 · 连接中…</string>
+    <string name="status_grant_permission">Shizuku 运行中 · 请授予权限</string>
+    <string name="status_start_shizuku">点击启动 Shizuku</string>
+
+    <string name="info_device">设备</string>
+    <string name="info_kernel">内核</string>
+    <string name="info_ksud">ksud</string>
+    <string name="info_kernelsu">KernelSU</string>
+    <string name="info_selinux">SELinux</string>
+    <string name="info_seccomp">Seccomp</string>
+    <string name="info_kernelsu_active">越狱模式 (u:r:ksu:s0)</string>
+
+    <string name="dialog_root_title">获取 Root Shell？</string>
+    <string name="dialog_root_message">运行一次 CVE-2026-98260 并保持一个 uid=0 的 shell 打开。\n\n- 尝试失败后进程会驻留，直到重启\n- Root 在重启后消失\n- 运行期间请勿使用设备</string>
+    <string name="dialog_ksu_title">加载 KernelSU？</string>
+    <string name="dialog_ksu_message">通过伪造凭据延迟加载 ksud。\n\n- 成功后 su 运行于 u:r:ksu:s0\n- 父进程会驻留；重启以清理\n- 运行期间请勿使用设备</string>
+    <string name="dialog_reboot_title">重启设备？</string>
+    <string name="dialog_reboot_message">这是清理驻留进程的唯一方式。</string>
+
+    <string name="toast_start_shizuku_first">请先启动 Shizuku</string>
+    <string name="toast_connecting">正在连接 Shizuku…</string>
+    <string name="toast_preparing">正在准备…</string>
+    <string name="toast_ksu_loaded">KernelSU 已加载（越狱模式）</string>
+    <string name="toast_ksu_failed">KernelSU 加载失败：%1$s</string>
+    <string name="toast_bind_first">请先绑定服务</string>
+    <string name="toast_prepare_failed">准备失败：%1$s</string>
+    <string name="toast_reboot_failed">重启失败：%1$s</string>
+    <string name="toast_shizuku_not_installed">未安装 Shizuku</string>
+    <string name="toast_shizuku_launch_failed">启动 Shizuku 失败</string>
+</resources>

@@ -10,6 +10,9 @@ local.properties
 # native build output (app/src/main/assets/timer is committed)
 /native/timer
 
+# kotlin compiler cache
+/.kotlin/
+
 # ide
 .idea/
 *.iml
