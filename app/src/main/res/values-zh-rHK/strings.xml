@@ -8,13 +8,13 @@
     <string name="action_reboot">重新啟動</string>
     <string name="action_run">執行</string>
     <string name="action_cancel">取消</string>
-    <string name="action_get_root">取得 Root Shell</string>
+    <string name="action_get_root">執行 Root</string>
     <string name="action_running">執行中…</string>
     <string name="action_copy">複製</string>
     <string name="action_close">關閉</string>
 
     <string name="summary_reboot">清除駐留程序與 KernelSU</string>
-    <string name="hint_first_run">首次使用：先授權 Shizuku，再按下「準備」。漏洞需要 shell 使用者身分，因此透過 Shizuku 執行。</string>
+    <string name="hint_first_run">授權 Shizuku 後點選「執行 Root」，將自動完成準備、取得 Root Shell 與載入 KernelSU。</string>
 
     <string name="pref_shizuku">Shizuku</string>
     <string name="pref_shizuku_running_bound">執行中 · 已綁定</string>
@@ -63,4 +63,7 @@
     <string name="toast_reboot_failed">重新啟動失敗：%1$s</string>
     <string name="toast_shizuku_not_installed">未安裝 Shizuku</string>
     <string name="toast_shizuku_launch_failed">啟動 Shizuku 失敗</string>
+    <string name="log_root_shell">正在取得 Root Shell…</string>
+    <string name="log_waiting">%1$s · 已等待 %2$d 秒</string>
+    <string name="action_reboot_retry">重新啟動裝置以重試</string>
 </resources>

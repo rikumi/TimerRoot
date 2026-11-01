@@ -8,13 +8,13 @@
     <string name="action_reboot">Reboot</string>
     <string name="action_run">Run</string>
     <string name="action_cancel">Cancel</string>
-    <string name="action_get_root">Get root shell</string>
+    <string name="action_get_root">Execute Root</string>
     <string name="action_running">Running…</string>
     <string name="action_copy">Copy</string>
     <string name="action_close">Close</string>
 
     <string name="summary_reboot">Clears parked processes and KernelSU</string>
-    <string name="hint_first_run">First run: allow Shizuku, then press Prepare. The exploit needs the shell user, so it runs through Shizuku.</string>
+    <string name="hint_first_run">Allow Shizuku, then tap Execute Root. Preparation, root shell and KernelSU loading run automatically.</string>
 
     <string name="pref_shizuku">Shizuku</string>
     <string name="pref_shizuku_running_bound">Running · bound</string>
@@ -63,4 +63,7 @@
     <string name="toast_reboot_failed">Reboot failed: %1$s</string>
     <string name="toast_shizuku_not_installed">Shizuku is not installed</string>
     <string name="toast_shizuku_launch_failed">Failed to launch Shizuku</string>
+    <string name="log_root_shell">Getting root shell…</string>
+    <string name="log_waiting">%1$s · waiting %2$ds</string>
+    <string name="action_reboot_retry">Reboot device to retry</string>
 </resources>

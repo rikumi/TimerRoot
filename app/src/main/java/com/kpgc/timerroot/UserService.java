@@ -29,6 +29,8 @@ public class UserService extends IUserService.Stub {
     private static final String CONF_DIR = "/data/local/tmp/timer-conf";
     private static final int MAX_OUTPUT = 20000;
 
+    private volatile boolean readingRootLog;
+    private final StringBuilder rootOutput = new StringBuilder();
     private Process rootProcess;
     private BufferedWriter rootInput;
     private final BlockingQueue<String> rootLines = new LinkedBlockingQueue<>();
@@ -72,7 +74,9 @@ public class UserService extends IUserService.Stub {
                 // over it instead of writing in place (ETXTBSY).
                 Process move = Runtime.getRuntime().exec(new String[]{"/system/bin/sh",
                         "-c", "chmod 755 " + tmp + " && mv -f " + tmp + " " + BIN});
-                move.waitFor();
+                if (move.waitFor() != 0) {
+                    return "install failed: could not publish timer binary";
+                }
 
                 // Extract the per-kernel conf files next to the binary.
                 File confDir = new File(CONF_DIR);
@@ -167,6 +171,8 @@ public class UserService extends IUserService.Stub {
     @Override
     public String runDetached(String args) {
         try {
+            readingRootLog = false;
+            try (FileOutputStream ignored = new FileOutputStream(LOG)) { }
             String cmd = "cd /data/local/tmp && setsid " + BIN + " " + confArg()
                     + " " + args + " >" + LOG + " 2>&1 </dev/null &";
             Runtime.getRuntime().exec(new String[]{"/system/bin/sh", "-c", cmd});
@@ -179,6 +185,9 @@ public class UserService extends IUserService.Stub {
 
     @Override
     public String readLog() {
+        if (readingRootLog) {
+            synchronized (rootOutput) { return rootOutput.toString(); }
+        }
         try (FileInputStream in = new FileInputStream(LOG)) {
             return readAll(in);
         } catch (Throwable t) {
@@ -189,9 +198,11 @@ public class UserService extends IUserService.Stub {
     @Override
     public String openRoot() {
         if (rootProcess != null && rootProcess.isAlive()) {
-            return "root shell already open";
+            return "root shell already open\n" + execRoot("id");
         }
         try {
+            synchronized (rootOutput) { rootOutput.setLength(0); }
+            readingRootLog = true;
             ProcessBuilder pb = new ProcessBuilder(
                     "/system/bin/sh", "-c", BIN + " " + confArg() + " shell");
             pb.directory(new File("/data/local/tmp"));
@@ -202,10 +213,14 @@ public class UserService extends IUserService.Stub {
             final BufferedReader reader = new BufferedReader(
                     new InputStreamReader(rootProcess.getInputStream()));
             rootLines.clear();
+            // Ask the interactive shell for proof of its identity.
+            rootInput.write("id\n");
+            rootInput.flush();
             Thread pump = new Thread(() -> {
                 try {
                     String line;
                     while ((line = reader.readLine()) != null) {
+                        synchronized (rootOutput) { rootOutput.append(line).append('\n'); }
                         rootLines.offer(line);
                     }
                 } catch (IOException ignored) {

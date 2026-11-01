@@ -9,6 +9,9 @@ import android.content.ServiceConnection
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.os.SystemClock
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -106,8 +109,8 @@ class MainActivity : ComponentActivity() {
     private val seccomp = mutableStateOf("-")
     private val shizukuRunning = mutableStateOf(false)
     private val shizukuPermission = mutableStateOf(-1)
+    private val rootFailed = mutableStateOf(false)
     private val loadingKsu = mutableStateOf(false)
-    private val loadingSecs = mutableStateOf(0L)
     private val logSheetVisible = mutableStateOf(false)
     private val logLines = mutableStateListOf<String>()
 
@@ -187,39 +190,52 @@ class MainActivity : ComponentActivity() {
             item(key = "run") {
                 RunButton()
             }
-            item(key = "ksu") {
-                TextButton(
-                    text = if (loadingKsu.value) {
-                        stringResource(R.string.action_loading_ksu, loadingSecs.value)
-                    } else {
-                        stringResource(R.string.action_load_ksu)
-                    },
-                    enabled = !loadingKsu.value,
-                    colors = ButtonDefaults.textButtonColorsPrimary(),
-                    onClick = ::confirmKsu,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
             item(key = "stop") {
                 TextButton(
                     text = stringResource(R.string.action_stop),
-                    enabled = rootOpen.value,
+                    enabled = rootOpen.value && !loadingKsu.value,
                     colors = ButtonDefaults.textButtonColors(),
                     onClick = ::stopRoot,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
+            item(key = "tools") {
+                Card(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                    ArrowPreference(
+                        title = stringResource(R.string.pref_shizuku),
+                        summary = if (shizukuRunning.value) {
+                            stringResource(
+                                if (bound.value) R.string.pref_shizuku_running_bound
+                                else R.string.pref_shizuku_running_unbound
+                            )
+                        } else {
+                            stringResource(R.string.pref_shizuku_start)
+                        },
+                        onClick = ::showShizuku,
+                    )
+                    ArrowPreference(
+                        title = stringResource(R.string.pref_diagnose),
+                        summary = stringResource(R.string.pref_diagnose_summary),
+                        onClick = { if (!loadingKsu.value) run("ids", "ids") },
+                    )
+                    ArrowPreference(
+                        title = stringResource(R.string.pref_log),
+                        summary = stringResource(R.string.pref_log_summary),
+                        onClick = { logSheetVisible.value = true },
+                    )
+                }
+            }
             item(key = "reboot") {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = ::confirmReboot,
+                    onClick = { if (!loadingKsu.value) confirmReboot() },
                     showIndication = true,
                     pressFeedbackType = PressFeedbackType.Tilt,
                 ) {
                     ArrowPreference(
                         title = stringResource(R.string.action_reboot),
                         summary = stringResource(R.string.summary_reboot),
-                        onClick = ::confirmReboot,
+                        onClick = { if (!loadingKsu.value) confirmReboot() },
                     )
                 }
             }
@@ -239,35 +255,6 @@ class MainActivity : ComponentActivity() {
         Column {
             ActivationStatusCard()
             DeviceInfoCard()
-            Card(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
-                ArrowPreference(
-                    title = stringResource(R.string.pref_shizuku),
-                    summary = if (shizukuRunning.value) {
-                        stringResource(
-                            if (bound.value) R.string.pref_shizuku_running_bound
-                            else R.string.pref_shizuku_running_unbound
-                        )
-                    } else {
-                        stringResource(R.string.pref_shizuku_start)
-                    },
-                    onClick = ::showShizuku,
-                )
-                ArrowPreference(
-                    title = stringResource(R.string.pref_prepare),
-                    summary = stringResource(R.string.pref_prepare_summary),
-                    onClick = ::prepare,
-                )
-                ArrowPreference(
-                    title = stringResource(R.string.pref_diagnose),
-                    summary = stringResource(R.string.pref_diagnose_summary),
-                    onClick = { run("ids", "ids") },
-                )
-                ArrowPreference(
-                    title = stringResource(R.string.pref_log),
-                    summary = stringResource(R.string.pref_log_summary),
-                    onClick = { logSheetVisible.value = true },
-                )
-            }
         }
     }
 
@@ -327,36 +314,28 @@ class MainActivity : ComponentActivity() {
         Card(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), insideMargin = PaddingValues(16.dp)) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                DeviceInfoItem(stringResource(R.string.info_device), Build.MODEL + " / " + Build.PRODUCT)
+                DeviceInfoItem(stringResource(R.string.info_device), Build.MODEL)
                 DeviceInfoItem(stringResource(R.string.info_kernel), System.getProperty("os.version") ?: "?")
-                DeviceInfoItem(stringResource(R.string.info_ksud), ksud.value)
                 DeviceInfoItem(
                     stringResource(R.string.info_kernelsu),
                     if (ksu.value == "active") stringResource(R.string.info_kernelsu_active) else ksu.value
                 )
-                DeviceInfoItem(stringResource(R.string.info_selinux), selinux.value)
-                DeviceInfoItem(stringResource(R.string.info_seccomp), seccomp.value)
             }
         }
     }
 
     @Composable
     private fun DeviceInfoItem(title: String, value: String) {
-        Column {
-            Text(
-                text = title,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Medium,
-                color = MiuixTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = value,
-                modifier = Modifier.padding(top = 2.dp),
-                fontSize = 14.sp,
-                color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.68f),
-            )
+        androidx.compose.foundation.layout.Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(text = title, fontSize = 14.sp,
+                color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+            Text(text = value, fontSize = 14.sp, modifier = Modifier.weight(1f),
+                textAlign = TextAlign.End)
         }
     }
 
@@ -365,9 +344,9 @@ class MainActivity : ComponentActivity() {
         TextButton(
             text = if (loadingKsu.value) stringResource(R.string.action_running)
             else stringResource(R.string.action_get_root),
-            enabled = bound.value && !loadingKsu.value,
+            enabled = !loadingKsu.value && !rootFailed.value,
             colors = ButtonDefaults.textButtonColorsPrimary(),
-            onClick = ::confirmRoot,
+            onClick = ::runRoot,
             modifier = Modifier.fillMaxWidth(),
         )
     }
@@ -375,10 +354,10 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun LogSheet() {
         OverlayBottomSheet(
-            show = logSheetVisible.value,
+            show = logSheetVisible.value || rootFailed.value,
             title = stringResource(R.string.pref_log),
-            allowDismiss = true,
-            onDismissRequest = { logSheetVisible.value = false },
+            allowDismiss = !rootFailed.value,
+            onDismissRequest = { if (!rootFailed.value) logSheetVisible.value = false },
             startAction = {
                 IconButton(onClick = ::copyLog) {
                     Icon(
@@ -389,7 +368,10 @@ class MainActivity : ComponentActivity() {
                 }
             },
             endAction = {
-                IconButton(onClick = { logSheetVisible.value = false }) {
+                IconButton(
+                    enabled = !rootFailed.value,
+                    onClick = { if (!rootFailed.value) logSheetVisible.value = false },
+                ) {
                     Icon(
                         imageVector = MiuixIcons.Close,
                         contentDescription = stringResource(R.string.action_close)
@@ -397,13 +379,26 @@ class MainActivity : ComponentActivity() {
                 }
             },
             content = {
-                LogPanel(
-                    lines = logLines.toList(),
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 240.dp, max = 520.dp)
                         .navigationBarsPadding(),
-                )
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    LogPanel(
+                        lines = logLines.toList(),
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
+                    if (rootFailed.value) {
+                        TextButton(
+                            text = stringResource(R.string.action_reboot_retry),
+                            colors = ButtonDefaults.textButtonColorsPrimary(),
+                            onClick = ::confirmReboot,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
             },
         )
     }
@@ -594,121 +589,106 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun prepare() {
-        if (!safePing()) {
-            toast(getString(R.string.toast_start_shizuku_first))
-            showShizuku()
-            return
-        }
-        if (service.value == null) {
-            bindService()
-            toast(getString(R.string.toast_connecting))
-            return
-        }
-        toast(getString(R.string.toast_preparing))
-        Thread {
+    /** Run blocking service calls on the worker while keeping silent stages visible. */
+    private fun <T> waitingStage(label: String, readOutput: (() -> String)? = null, action: () -> T): T {
+        addLog(label)
+        val start = SystemClock.elapsedRealtime()
+        val ticker = Executors.newSingleThreadScheduledExecutor()
+        var previous = ""
+        ticker.scheduleAtFixedRate({
             try {
-                val result = service.value!!.install(packageCodePath)
-                addLog(result)
-                runOnUiThread {
-                    toast(result)
-                    refreshDetails()
+                val output = readOutput?.invoke().orEmpty()
+                if (output != previous) {
+                    val delta = if (output.startsWith(previous)) output.substring(previous.length) else output
+                    previous = output
+                    if (delta.isNotBlank()) addLog(delta.trimEnd())
+                } else {
+                    addLog(getString(R.string.log_waiting, label,
+                        (SystemClock.elapsedRealtime() - start) / 1000))
                 }
-            } catch (t: Throwable) {
-                addLog("prepare failed: $t")
-                runOnUiThread { toast(getString(R.string.toast_prepare_failed, t)) }
-            }
-        }.start()
-    }
-
-    private fun confirmRoot() {
-        android.app.AlertDialog.Builder(this)
-            .setTitle(getString(R.string.dialog_root_title))
-            .setMessage(getString(R.string.dialog_root_message))
-            .setPositiveButton(getString(R.string.action_run)) { _, _ -> runRoot() }
-            .setNegativeButton(getString(R.string.action_cancel), null)
-            .show()
+            } catch (t: Throwable) { Log.i(TAG, "log poll failed: $t") }
+        }, 1, 1, TimeUnit.SECONDS)
+        return try { action() } finally { ticker.shutdownNow() }
     }
 
     private fun runRoot() {
-        val s = service.value
-        if (s == null) {
-            addLog("bind the service first")
-            return
-        }
-        Thread {
-            try {
-                val out = s.openRoot()
-                rootOpen.value = out.contains("uid=0(root)") || out.contains("started")
-                addLog(out)
-                if (rootOpen.value && ksu.value != "active") {
-                    addLog("root shell ready - loading KernelSU...")
-                    runKsu()
-                }
-            } catch (t: Throwable) {
-                addLog("root failed: $t")
-            }
-        }.start()
-    }
-
-    private fun confirmKsu() {
-        android.app.AlertDialog.Builder(this)
-            .setTitle(getString(R.string.dialog_ksu_title))
-            .setMessage(getString(R.string.dialog_ksu_message))
-            .setPositiveButton(getString(R.string.action_run)) { _, _ -> runKsu() }
-            .setNegativeButton(getString(R.string.action_cancel), null)
-            .show()
-    }
-
-    private fun runKsu() {
-        val s = service.value
-        if (s == null) {
-            addLog("bind the service first")
+        logSheetVisible.value = true
+        if (loadingKsu.value || rootFailed.value) return
+        if (!safePing() || safePermission() != 0) {
+            addLog(getString(R.string.toast_start_shizuku_first))
+            ensureShizuku()
             return
         }
         loadingKsu.value = true
-        loadingSecs.value = 0
+        if (!bound.value) bindService()
         Thread {
             try {
-                addLog(s.runDetached("fake"))
-                val start = System.currentTimeMillis()
-                var loaded = false
-                var failure: String? = null
-                while (System.currentTimeMillis() - start < 90000) {
-                    Thread.sleep(1000)
-                    loadingSecs.value = (System.currentTimeMillis() - start) / 1000
-                    val tail = s.readLog()
-                    if (tail.contains("KSU_LOADED")) {
-                        loaded = true
-                        break
+                val s = waitingStage(getString(R.string.toast_connecting)) {
+                    val deadline = SystemClock.elapsedRealtime() + 15000
+                    var connected: IUserService? = null
+                    while (SystemClock.elapsedRealtime() < deadline) {
+                        connected = service.value
+                        if (connected != null) break
+                        Thread.sleep(100)
                     }
-                    if (tail.contains("selinux write failed")) {
-                        failure = "the selinux stage missed its race"
-                        break
-                    }
-                    if (tail.contains("parking without reap")) {
-                        failure = "the exploit parked before loading ksud"
-                        break
-                    }
+                    checkNotNull(connected) { "Shizuku connection timed out" }
                 }
-                if (!loaded && failure == null) failure = "timed out after 90s"
-                if (loaded) parseInfo(s.info())
-                addLog(s.readLog())
-                loadingKsu.value = false
-                runOnUiThread {
-                    if (loaded) {
-                        toast(getString(R.string.toast_ksu_loaded))
-                        refreshDetails()
-                    } else {
-                        toast(getString(R.string.toast_ksu_failed, failure ?: "unknown"))
-                        addLog("KernelSU failed: $failure - parked processes remain; reboot to clean up")
-                    }
+                val prepared = waitingStage(getString(R.string.toast_preparing)) {
+                    s.install(packageCodePath)
                 }
+                addLog(prepared)
+                check(prepared.startsWith("installed ")) { prepared }
+                if (!rootOpen.value) {
+                    val out = waitingStage(getString(R.string.log_root_shell), { s.readLog() }) { s.openRoot() }
+                    addLog(out)
+                    // The service reports "started" even when no uid=0 was observed.
+                    check(out.contains("uid=0(root)")) { "Root shell did not report uid=0" }
+                    runOnUiThread { rootOpen.value = true }
+                }
+                if (ksu.value != "active") runKsu(s)
+                else addLog(getString(R.string.toast_ksu_loaded))
             } catch (t: Throwable) {
-                loadingKsu.value = false
-                addLog("ksu failed: $t")
+                addLog("Root failed: $t")
+                runOnUiThread {
+                    rootFailed.value = true
+                    logSheetVisible.value = true
+                }
+            } finally {
+                runOnUiThread {
+                    loadingKsu.value = false
+                    refreshDetails()
+                }
             }
         }.start()
+    }
+
+    private fun runKsu(s: IUserService) {
+        var previous = ""
+        fun appendOutput(output: String): Boolean {
+            if (output == previous) return false
+            val delta = if (output.startsWith(previous)) output.substring(previous.length) else output
+            previous = output
+            if (delta.isNotBlank()) addLog(delta.trimEnd())
+            return delta.isNotBlank()
+        }
+        appendOutput(waitingStage(getString(R.string.action_load_ksu)) { s.runDetached("fake") })
+        val start = SystemClock.elapsedRealtime()
+        while (SystemClock.elapsedRealtime() - start < 90000) {
+            val tail = s.readLog()
+            if (!appendOutput(tail)) {
+                addLog(getString(R.string.log_waiting, getString(R.string.action_load_ksu),
+                    (SystemClock.elapsedRealtime() - start) / 1000))
+            }
+            if (tail.contains("KSU_LOADED")) {
+                parseInfo(s.info())
+                addLog(getString(R.string.toast_ksu_loaded))
+                return
+            }
+            check(!tail.contains("selinux write failed")) { "SELinux stage failed; reboot before retrying" }
+            check(!tail.contains("parking without reap")) { "Process parked before loading ksud; reboot before retrying" }
+            Thread.sleep(1000)
+        }
+        error("KernelSU timed out after 90s; reboot before retrying")
     }
 
     private fun stopRoot() {
@@ -778,7 +758,7 @@ class MainActivity : ComponentActivity() {
         ).daemon(false)
             .processNameSuffix("timer")
             .debuggable(false)
-            .version(5)
+            .version(6)
 
     private fun copyLog() {
         try {

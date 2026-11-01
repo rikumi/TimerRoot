@@ -123,31 +123,25 @@ the server is **not** running; the exploit cannot start until it is.
 3. The card turns **Ready** (Shizuku connected, no root yet). If it still says
    `Not connected`, press `Shizuku` in the tools row to request again.
 
-### 3. Prepare
+### 3. Execute Root
 
-`Prepare` extracts `assets/timer` to `/data/local/tmp/timer`:
+Tap **Execute Root**. The app opens a live log sheet and automatically prepares
+its binary and kernel configuration, acquires a root shell, then loads KernelSU.
+The home screen shows only device, kernel and KernelSU status above this button.
 
-```
-installed 307192 bytes
-```
+Root-shell and KernelSU output is appended while the operation runs. Stages
+without new output show elapsed waiting time every second. The sheet can be
+closed and reopened from **Log** without interrupting execution; use its copy
+button to copy the session log.
 
-### 4. Get root shell
+If Root fails, the log sheet stays open and cannot be dismissed. A primary
+**Reboot device to retry** button appears below the log.
 
-One tap. The app escalates, keeps a `uid=0` shell inside the service, and then
-starts the KernelSU late-load automatically:
+A root shell is accepted only after the service reports `uid=0(root)`.
+KernelSU loading completes when the log reports `KSU_LOADED`; the status card
+also checks `su -c id`. On failure, inspect the log and reboot before retrying.
 
-```
-[child] woke uid=0
-root shell ready - loading KernelSU...
-Loading KernelSU... 12s
-KSU_LOADED
-```
-
-The card goes **Root shell** -> **Jailbreak mode** (`u:r:ksu:s0`). If the
-KernelSU stage loses its race, the card turns red with `KernelSU failed`, and
-you should reboot before retrying.
-
-### 5. Reboot
+### 4. Reboot
 
 Use the `Reboot` pill. It goes through the service (`svc power reboot`), so it
 works even when no root shell is open yet. Rebooting is also the only clean way
