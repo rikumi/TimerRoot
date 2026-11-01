@@ -26,6 +26,7 @@ public class UserService extends IUserService.Stub {
 
     private static final String BIN = "/data/local/tmp/timer";
     private static final String LOG = "/data/local/tmp/timer.log";
+    private static final String CONF_DIR = "/data/local/tmp/timer-conf";
     private static final int MAX_OUTPUT = 20000;
 
     private Process rootProcess;
@@ -52,6 +53,7 @@ public class UserService extends IUserService.Stub {
     @Override
     public String install(String apk) {
         try {
+            int confCount = 0;
             try (ZipFile zf = new ZipFile(apk)) {
                 ZipEntry entry = zf.getEntry("assets/timer");
                 if (entry == null) {
@@ -71,19 +73,83 @@ public class UserService extends IUserService.Stub {
                 Process move = Runtime.getRuntime().exec(new String[]{"/system/bin/sh",
                         "-c", "chmod 755 " + tmp + " && mv -f " + tmp + " " + BIN});
                 move.waitFor();
+
+                // Extract the per-kernel conf files next to the binary.
+                File confDir = new File(CONF_DIR);
+                confDir.mkdirs();
+                java.util.Enumeration<? extends ZipEntry> entries = zf.entries();
+                while (entries.hasMoreElements()) {
+                    ZipEntry e = entries.nextElement();
+                    if (e.isDirectory() || !e.getName().startsWith("assets/conf/")) {
+                        continue;
+                    }
+                    String name = e.getName().substring("assets/conf/".length());
+                    if (!name.endsWith(".conf")) {
+                        continue;
+                    }
+                    File dst = new File(confDir, name);
+                    try (InputStream in = zf.getInputStream(e);
+                         FileOutputStream out = new FileOutputStream(dst)) {
+                        byte[] buf = new byte[65536];
+                        int n;
+                        while ((n = in.read(buf)) > 0) {
+                            out.write(buf, 0, n);
+                        }
+                    }
+                    confCount++;
+                }
             }
-            return "installed " + new File(BIN).length() + " bytes (uid="
-                    + android.system.Os.getuid() + ")";
+            return "installed " + new File(BIN).length() + " bytes, " + confCount
+                    + " confs (uid=" + android.system.Os.getuid() + ")";
         } catch (Throwable t) {
             return "install failed: " + t;
         }
+    }
+
+    /** Returns "--conf <path>" for the conf whose `release` matches uname -r,
+     *  or "" when none matches. */
+    private String confArg() {
+        String release = execOut("uname -r");
+        File dir = new File(CONF_DIR);
+        File[] files = dir.listFiles();
+        if (files == null) {
+            return "";
+        }
+        for (File f : files) {
+            if (!f.getName().endsWith(".conf")) {
+                continue;
+            }
+            if (release.equals(readRelease(f))) {
+                return "--conf " + f.getAbsolutePath();
+            }
+        }
+        return "";
+    }
+
+    private String readRelease(File f) {
+        try (BufferedReader r = new BufferedReader(new InputStreamReader(
+                new FileInputStream(f)))) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                if (!line.startsWith("release")) {
+                    continue;
+                }
+                int i = line.indexOf('"');
+                int j = line.lastIndexOf('"');
+                if (i >= 0 && j > i) {
+                    return line.substring(i + 1, j);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return "";
     }
 
     @Override
     public String run(String args) {
         try {
             ProcessBuilder pb = new ProcessBuilder(
-                    "/system/bin/sh", "-c", BIN + " " + args + " 2>&1");
+                    "/system/bin/sh", "-c", BIN + " " + confArg() + " " + args + " 2>&1");
             pb.directory(new File("/data/local/tmp"));
             pb.redirectErrorStream(true);
             Process p = pb.start();
@@ -101,8 +167,8 @@ public class UserService extends IUserService.Stub {
     @Override
     public String runDetached(String args) {
         try {
-            String cmd = "cd /data/local/tmp && setsid " + BIN + " " + args
-                    + " >" + LOG + " 2>&1 </dev/null &";
+            String cmd = "cd /data/local/tmp && setsid " + BIN + " " + confArg()
+                    + " " + args + " >" + LOG + " 2>&1 </dev/null &";
             Runtime.getRuntime().exec(new String[]{"/system/bin/sh", "-c", cmd});
             Thread.sleep(2000);
             return readLog();
@@ -126,7 +192,8 @@ public class UserService extends IUserService.Stub {
             return "root shell already open";
         }
         try {
-            ProcessBuilder pb = new ProcessBuilder(BIN, "shell");
+            ProcessBuilder pb = new ProcessBuilder(
+                    "/system/bin/sh", "-c", BIN + " " + confArg() + " shell");
             pb.directory(new File("/data/local/tmp"));
             pb.redirectErrorStream(true);
             rootProcess = pb.start();

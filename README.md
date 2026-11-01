@@ -4,9 +4,11 @@ Android front end for **CVE-2026-98260** (POSIX CPU timer use-after-free), the
 same class of bug as CVE-2026-64560. One tap gives you a root shell and then
 late-loads **KernelSU** (`u:r:ksu:s0`).
 
-The exploit itself is *not* included here. This repository is the app shell
-around it: UI, state detection and the Shizuku plumbing needed to run a
-shell-domain exploit from an ordinary app.
+The exploit source is included (`native/timer.c`, conf-driven) and compiled to
+`app/src/main/assets/timer`. This repository is the app shell around it: UI,
+state detection and the Shizuku plumbing needed to run a shell-domain exploit
+from an ordinary app. The device constants live in per-kernel HOCON conf files
+(`conf/*.conf`), selected at runtime by `uname -r`.
 
 ## Why the app needs Shizuku
 
@@ -30,23 +32,23 @@ MainActivity (untrusted_app)
   via wireless debugging, or over ADB)
 - [KernelSU](https://github.com/tiann/KernelSU) manager installed, for the
   `Load KernelSU` path
-- A kernel build the exploit was ported to. The upstream binary targets
-  `6.12.69-android16-6-g242e1a07f878-ab15865446-4k`; see below.
+- A supported kernel build (exact `uname -r` match):
+  `6.12.58-android16-6-g7704a1ae279b-ab15213644-4k`,
+  `6.12.69-android16-6-g242e1a07f878-ab15865446-4k`, or
+  `6.6.118-android15-8-g9bc34d5b0c79-abogki537459655-4k`. See `conf/`.
 
-## Getting the exploit binary
+## Native and conf
 
-TimerRoot expects the compiled exploit at `app/src/main/assets/timer`:
+The exploit is a single-file C program (`native/timer.c`) that reads a HOCON
+conf (`conf/*.conf`) for the device constants. Rebuild it with the NDK:
 
 ```bash
-git clone https://github.com/YuKongA/CVE-2026-98260
-cp CVE-2026-98260/timer/timer app/src/main/assets/timer
+ANDROID_NDK_HOME=/path/to/ndk make -C native
+cp native/timer app/src/main/assets/timer
 ```
 
-or
-
-```powershell
-scripts/fetch-timer.ps1
-```
+`app/src/main/assets/timer` and `app/src/main/assets/conf/*.conf` are already
+committed, so a fresh clone builds the APK without extra steps.
 
 The binary is MIT licensed by its authors; only use it on hardware you own, and
 only when your kernel matches the build it was ported to.

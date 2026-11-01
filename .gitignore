@@ -7,8 +7,8 @@ local.properties
 *.keystore
 *.jks
 
-# the exploit binary is fetched, not committed
-app/src/main/assets/timer
+# native build output (app/src/main/assets/timer is committed)
+/native/timer
 
 # ide
 .idea/
