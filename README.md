@@ -1,4 +1,5 @@
 # TimerRoot
+<img width="1216" height="2640" alt="1000008015" src="https://github.com/user-attachments/assets/22767c69-ab6d-4b14-b8ab-add3447c3ef2" />
 
 Android front end for **CVE-2026-98260** (POSIX CPU timer use-after-free), the
 same class of bug as CVE-2026-64560. One tap gives you a root shell and then
