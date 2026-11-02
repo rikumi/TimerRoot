@@ -637,6 +637,7 @@ class MainActivity : ComponentActivity() {
                     val out = waitingStage(getString(R.string.log_root_shell), { s.readLog() }) { s.openRoot() }
                     addLog(out)
                     // The service reports "started" even when no uid=0 was observed.
+                    fatalMarker(out)?.let { error("$it; reboot before retrying") }
                     check(out.contains("uid=0(root)")) { "Root shell did not report uid=0" }
                     runOnUiThread { rootOpen.value = true }
                 }
@@ -655,6 +656,21 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }.start()
+    }
+
+    /**
+     * Log markers that prove the exploit cannot succeed.  It exits (or the
+     * stage script ends) right after printing one of these, so waiting for a
+     * success marker such as uid=0(root) or KSU_LOADED is pointless: report
+     * the failure and stop instead of polling until the timeout.
+     */
+    private fun fatalMarker(text: String): String? = when {
+        text.contains("base calibration failed") -> "Base calibration failed"
+        text.contains("page event ids not found") -> "Tracefs page events not found"
+        text.contains("cred leak failed") -> "Cred leak failed"
+        text.contains("ksud missing") -> "ksud not found on device"
+        text.contains("KSU_MISSING") -> "KernelSU module not loaded"
+        else -> null
     }
 
     private fun runKsu(s: IUserService) {
@@ -681,6 +697,7 @@ class MainActivity : ComponentActivity() {
             }
             check(!tail.contains("selinux write failed")) { "SELinux stage failed; reboot before retrying" }
             check(!tail.contains("parking without reap")) { "Process parked before loading ksud; reboot before retrying" }
+            fatalMarker(tail)?.let { error("$it; reboot before retrying") }
             Thread.sleep(1000)
         }
         error("KernelSU timed out after 90s; reboot before retrying")

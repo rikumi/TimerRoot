@@ -40,6 +40,28 @@ public class UserService extends IUserService.Stub {
     private static final String DIRTY_CONF_SUBDIR = "dirty";
     private static final int MAX_OUTPUT = 20000;
 
+    /**
+     * Log markers that prove the exploit cannot succeed.  It exits (or the
+     * stage script ends) right after printing one of these, so waiting for a
+     * success marker such as uid=0(root) is pointless.
+     */
+    private static final String[] FATAL_MARKERS = {
+        "base calibration failed",
+        "page event ids not found",
+        "cred leak failed",
+        "ksud missing",
+        "KSU_MISSING",
+    };
+
+    private static boolean hasFatalMarker(String text) {
+        for (String marker : FATAL_MARKERS) {
+            if (text.contains(marker)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private volatile boolean readingRootLog;
     private final StringBuilder rootOutput = new StringBuilder();
     private Process rootProcess;
@@ -347,7 +369,7 @@ public class UserService extends IUserService.Stub {
                     continue;
                 }
                 out += line + "\n";
-                if (line.contains("uid=0(root)")) {
+                if (line.contains("uid=0(root)") || hasFatalMarker(line)) {
                     break;
                 }
             }
