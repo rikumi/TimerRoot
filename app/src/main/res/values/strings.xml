@@ -64,6 +64,5 @@
     <string name="toast_shizuku_not_installed">Shizuku is not installed</string>
     <string name="toast_shizuku_launch_failed">Failed to launch Shizuku</string>
     <string name="log_root_shell">Getting root shell…</string>
-    <string name="log_waiting">%1$s · waiting %2$ds</string>
     <string name="action_reboot_retry">Reboot device to retry</string>
 </resources>

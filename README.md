@@ -33,10 +33,7 @@ MainActivity (untrusted_app)
   via wireless debugging, or over ADB)
 - [KernelSU](https://github.com/tiann/KernelSU) manager installed, for the
   `Load KernelSU` path
-- A supported kernel build (exact `uname -r` match):
-  `6.12.58-android16-6-g7704a1ae279b-ab15213644-4k`,
-  `6.12.69-android16-6-g242e1a07f878-ab15865446-4k`, or
-  `6.6.118-android15-8-g9bc34d5b0c79-abogki537459655-4k`. See `conf/`.
+- A supported kernel build (exact `uname -r` match): see `conf/`.
 
 ## Native and conf
 

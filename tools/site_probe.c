@@ -88,7 +88,7 @@ int main(void)
     wr(TR "/tracing_on","0");
 
     /* 打印所有出现的 call site 及其计数(全部 CPU) */
-    struct { unsigned long long site; int cnt; } seen[512];
+    struct { unsigned long long site, req, alloc; int cnt; } seen[512];
     int ns=0;
     for (int cpu=0;cpu<8;cpu++){
         long n = rd(cpu, raw, 32u<<20);
@@ -98,14 +98,20 @@ int main(void)
             unsigned long long site=u64(raw,i), ptr=u64(raw,i+8);
             if (!is_kp(ptr)) continue;
             int f=0;
-            for (int k=0;k<ns;k++) if (seen[k].site==site){ seen[k].cnt++; f=1; break; }
-            if (!f && ns<512){ seen[ns].site=site; seen[ns].cnt=1; ns++; }
+            for (int k=0;k<ns;k++)
+                if (seen[k].site==site){ seen[k].cnt++; f=1; break; }
+            if (!f && ns<512){
+                seen[ns].site=site; seen[ns].cnt=1;
+                seen[ns].req=u64(raw,i+16); seen[ns].alloc=u64(raw,i+24);
+                ns++;
+            }
         }
     }
     printf("=== 本进程 kmem_cache_alloc call sites (运行时地址) ===\n");
     for (int k=0;k<ns;k++)
-        printf("  site=%#llx low21=%#llx cnt=%d\n", seen[k].site,
-               seen[k].site & 0x1fffffULL, seen[k].cnt);
+        printf("  site=%#llx low21=%#llx req=%#llx alloc=%#llx cnt=%d\n",
+               seen[k].site, seen[k].site & 0x1fffffULL, seen[k].req,
+               seen[k].alloc, seen[k].cnt);
 
     /* 也打印所有 pid 的, 便于识别 copy_process / do_timer_create */
     ns=0;
@@ -124,5 +130,6 @@ int main(void)
     for (int k=0;k<ns;k++)
         printf("  site=%#llx low21=%#llx cnt=%d\n", seen[k].site,
                seen[k].site & 0x1fffffULL, seen[k].cnt);
+    wr(TR "/tracing_on", "1");   /* leave tracing as we found it */
     return 0;
 }
