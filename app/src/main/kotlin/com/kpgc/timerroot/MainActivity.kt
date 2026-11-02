@@ -165,8 +165,9 @@ class MainActivity : ComponentActivity() {
             },
         ) { paddingValues ->
             MainContent(scrollBehavior, paddingValues)
+            // OverlayBottomSheet registers with the Scaffold's popup host.
+            LogSheet()
         }
-        LogSheet()
     }
 
     @Composable
@@ -190,15 +191,6 @@ class MainActivity : ComponentActivity() {
             item(key = "run") {
                 RunButton()
             }
-            item(key = "stop") {
-                TextButton(
-                    text = stringResource(R.string.action_stop),
-                    enabled = rootOpen.value && !loadingKsu.value,
-                    colors = ButtonDefaults.textButtonColors(),
-                    onClick = ::stopRoot,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
             item(key = "tools") {
                 Card(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
                     ArrowPreference(
@@ -216,7 +208,10 @@ class MainActivity : ComponentActivity() {
                     ArrowPreference(
                         title = stringResource(R.string.pref_diagnose),
                         summary = stringResource(R.string.pref_diagnose_summary),
-                        onClick = { if (!loadingKsu.value) run("ids", "ids") },
+                        onClick = {
+                            logSheetVisible.value = true
+                            if (!loadingKsu.value) run("ids", "ids")
+                        },
                     )
                     ArrowPreference(
                         title = stringResource(R.string.pref_log),
@@ -689,18 +684,6 @@ class MainActivity : ComponentActivity() {
             Thread.sleep(1000)
         }
         error("KernelSU timed out after 90s; reboot before retrying")
-    }
-
-    private fun stopRoot() {
-        val s = service.value ?: return
-        Thread {
-            try {
-                addLog(s.closeRoot())
-                rootOpen.value = false
-            } catch (t: Throwable) {
-                addLog("stop failed: $t")
-            }
-        }.start()
     }
 
     private fun confirmReboot() {

@@ -1,5 +1,9 @@
 package com.kpgc.timerroot;
 
+import android.os.Build;
+import android.text.TextUtils;
+import android.util.Log;
+
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -10,6 +14,9 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.BufferedWriter;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -24,9 +31,13 @@ import java.util.zip.ZipFile;
  */
 public class UserService extends IUserService.Stub {
 
+    private static final String TAG = "TimerRootService";
+
     private static final String BIN = "/data/local/tmp/timer";
     private static final String LOG = "/data/local/tmp/timer.log";
     private static final String CONF_DIR = "/data/local/tmp/timer-conf";
+    /** Sub-directory of CONF_DIR holding profiles for "dirty" kernel builds. */
+    private static final String DIRTY_CONF_SUBDIR = "dirty";
     private static final int MAX_OUTPUT = 20000;
 
     private volatile boolean readingRootLog;
@@ -78,8 +89,11 @@ public class UserService extends IUserService.Stub {
                     return "install failed: could not publish timer binary";
                 }
 
-                // Extract the per-kernel conf files next to the binary.
+                // Extract the per-kernel conf files next to the binary. Wipe the
+                // directory first: a stale flat conf would otherwise keep matching
+                // by release alone and bypass the dirty/ identity checks.
                 File confDir = new File(CONF_DIR);
+                deleteRecursively(confDir);
                 confDir.mkdirs();
                 java.util.Enumeration<? extends ZipEntry> entries = zf.entries();
                 while (entries.hasMoreElements()) {
@@ -92,6 +106,10 @@ public class UserService extends IUserService.Stub {
                         continue;
                     }
                     File dst = new File(confDir, name);
+                    File parent = dst.getParentFile();
+                    if (parent != null) {
+                        parent.mkdirs();
+                    }
                     try (InputStream in = zf.getInputStream(e);
                          FileOutputStream out = new FileOutputStream(dst)) {
                         byte[] buf = new byte[65536];
@@ -110,43 +128,135 @@ public class UserService extends IUserService.Stub {
         }
     }
 
-    /** Returns "--conf <path>" for the conf whose `release` matches uname -r,
-     *  or "" when none matches. */
+    /**
+     * Returns "--conf &lt;path&gt;" for the conf that applies to this device, or
+     * "" when none matches.
+     *
+     * Two tiers:
+     *  - confs directly under CONF_DIR match on {@code release == uname -r}
+     *    alone; their release strings are unique enough (stock GKI builds).
+     *  - confs under CONF_DIR/dirty/ match on {@code release} <em>and</em> on
+     *    the identity fields ({@code device_model}, {@code android_release},
+     *    optional {@code sdk_int}) checked against the device. A dirty build's
+     *    release string ("-maybe-dirty") is not unique to one vendor build, so
+     *    the extra check guards against applying another device's constants.
+     *
+     * Identity fields use AOSP-standard properties only (Build.MODEL /
+     * Build.VERSION.RELEASE / Build.VERSION.SDK_INT), never vendor build
+     * strings such as a Flyme version.
+     */
     private String confArg() {
         String release = execOut("uname -r");
         File dir = new File(CONF_DIR);
-        File[] files = dir.listFiles();
-        if (files == null) {
-            return "";
-        }
-        for (File f : files) {
-            if (!f.getName().endsWith(".conf")) {
-                continue;
-            }
+        for (File f : listConfFiles(dir)) {
             if (release.equals(readRelease(f))) {
+                Log.i(TAG, "using conf " + f);
                 return "--conf " + f.getAbsolutePath();
             }
         }
+        File dirtyDir = new File(dir, DIRTY_CONF_SUBDIR);
+        for (File f : listConfFiles(dirtyDir)) {
+            if (!release.equals(readRelease(f))) {
+                continue;
+            }
+            if (!deviceIdentityMatches(f)) {
+                Log.w(TAG, "skipping dirty conf " + f + ": device identity mismatch");
+                continue;
+            }
+            Log.i(TAG, "using dirty conf " + f);
+            return "--conf " + f.getAbsolutePath();
+        }
+        Log.w(TAG, "no conf matched uname -r = " + release);
         return "";
     }
 
-    private String readRelease(File f) {
+    /** Regular .conf files directly inside {@code dir} (no recursion). */
+    private static File[] listConfFiles(File dir) {
+        File[] files = dir.listFiles((d, name) -> name.endsWith(".conf"));
+        if (files == null) {
+            return new File[0];
+        }
+        ArrayList<File> out = new ArrayList<>();
+        for (File f : files) {
+            if (f.isFile()) {
+                out.add(f);
+            }
+        }
+        return out.toArray(new File[0]);
+    }
+
+    /**
+     * Identity gate for dirty confs. {@code device_model} and
+     * {@code android_release} are required; {@code sdk_int} is compared when
+     * present. A conf that omits a required field is rejected rather than
+     * trusted, so an incomplete profile can never be selected.
+     */
+    private static boolean deviceIdentityMatches(File conf) {
+        Map<String, String> fields = readConfFields(conf);
+        String wantModel = fields.get("device_model");
+        String wantRelease = fields.get("android_release");
+        String wantSdk = fields.get("sdk_int");
+        if (TextUtils.isEmpty(wantModel) || TextUtils.isEmpty(wantRelease)) {
+            return false;
+        }
+        if (!wantModel.equals(Build.MODEL)) {
+            return false;
+        }
+        if (!wantRelease.equals(Build.VERSION.RELEASE)) {
+            return false;
+        }
+        return TextUtils.isEmpty(wantSdk)
+                || wantSdk.equals(String.valueOf(Build.VERSION.SDK_INT));
+    }
+
+    /**
+     * Minimal conf reader: {@code key = value} lines with {@code #} and
+     * {@code //} comments stripped and surrounding quotes removed.
+     */
+    private static Map<String, String> readConfFields(File f) {
+        Map<String, String> out = new HashMap<>();
         try (BufferedReader r = new BufferedReader(new InputStreamReader(
                 new FileInputStream(f)))) {
             String line;
             while ((line = r.readLine()) != null) {
-                if (!line.startsWith("release")) {
+                int hash = line.indexOf('#');
+                if (hash >= 0) {
+                    line = line.substring(0, hash);
+                }
+                int dsl = line.indexOf("//");
+                if (dsl >= 0) {
+                    line = line.substring(0, dsl);
+                }
+                int eq = line.indexOf('=');
+                if (eq < 0) {
                     continue;
                 }
-                int i = line.indexOf('"');
-                int j = line.lastIndexOf('"');
-                if (i >= 0 && j > i) {
-                    return line.substring(i + 1, j);
+                String key = line.substring(0, eq).trim();
+                String val = line.substring(eq + 1).trim();
+                if (val.length() >= 2 && val.startsWith("\"") && val.endsWith("\"")) {
+                    val = val.substring(1, val.length() - 1);
+                }
+                if (!key.isEmpty() && !val.isEmpty()) {
+                    out.put(key, val);
                 }
             }
         } catch (Throwable ignored) {
         }
-        return "";
+        return out;
+    }
+
+    private String readRelease(File f) {
+        return readConfFields(f).getOrDefault("release", "");
+    }
+
+    private static void deleteRecursively(File f) {
+        File[] kids = f.listFiles();
+        if (kids != null) {
+            for (File k : kids) {
+                deleteRecursively(k);
+            }
+        }
+        f.delete();
     }
 
     @Override
