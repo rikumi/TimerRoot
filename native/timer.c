@@ -91,6 +91,11 @@ struct timer_cfg
     char ksu_kmi[64];                      /* KernelSU late-load --kmi */
 };
 static struct timer_cfg g_cfg;
+/* Set when a conf value does not fit in 64 bits.  strtoull() reports the
+ * overflow through errno and returns ULLONG_MAX, which the site comparison
+ * would silently treat as a value that never matches; refuse the conf
+ * instead of failing later with a bare "base calibration failed". */
+static int g_conf_overflow;
 
 static void parse_conf_line(char *line)
 {
@@ -131,7 +136,17 @@ static void parse_conf_line(char *line)
         return;
     }
 
+    errno = 0;
     num = strtoull(val, NULL, 0);
+    if (errno == ERANGE)
+    {
+        fprintf(stderr,
+                "[-] conf value for '%s' does not fit in 64 bits: %s"
+                " (a kernel virtual address is 16 hex digits)\n",
+                key, val);
+        g_conf_overflow = 1;
+        return;
+    }
     if (!strcmp(key, "timer_site")) g_cfg.timer_site = num;
     else if (!strcmp(key, "timer_alloc")) g_cfg.timer_alloc = num;
     else if (!strcmp(key, "cred_req")) g_cfg.cred_req = num;
@@ -165,6 +180,8 @@ static int load_conf(const char *path)
         parse_conf_line(line);
     fclose(f);
 
+    if (g_conf_overflow)
+        return -1;
     if (!g_cfg.timer_site || !g_cfg.selinux_state || !g_cfg.task_cred_off ||
         !g_cfg.copy_process_low21 || !g_cfg.task_alloc_bytes || !g_cfg.ksu_kmi[0])
     {
