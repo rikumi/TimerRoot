@@ -168,11 +168,28 @@ PKT110 6.6.118 实测（`begin_new_exec`@`0xffffffc0803e3eb0`）：
 ### 4.6 `ksu_kmi`（KernelSU 模块 KMI）
 | 内核 | ksu_kmi |
 |---|---|
+| 6.1 android14 | `android14-6.1` |
 | 6.6 android15 | `android15-6.6` |
 | 6.12 android16 | `android16-6.12` |
 | 6.18 android17 | `android17-6.18` |
 
 libksud.so 内嵌这些模块，`ksu_stage.sh` 用 `--kmi` 选择；错误会导致 `late-load rc=0` 但 `KSU_MISSING`。
+
+### 4.7 `pcp_free`（PCP 内核的回收变体）
+
+部分内核（实测 Pixel 8 `6.1.162-android14-11`，2026-10 安全补丁级别）的 order≤3 页释放走
+PCP 链表，**不产生 `mm_page_free` 事件**（tracepoint 只在 `__free_pages_ok`），exploit 的
+「等 page_free 再喷」模型会永远 miss（实测 victim 的 133 个空 slab 页 0/133 有事件，但
+slabinfo 显示它们在 zombie 后 4-8s 确实被释放）。这类内核在 conf 里加 `pcp_free = 1`：
+
+- 不等 free 事件，改为轮询 `/proc/slabinfo` 的 `posix_timers_cache` active 计数，等
+  victim 的 ~4096 个对象真正 free（active 掉 ~4000，实测 4.5-8.5s）；
+- 然后立即放开喷洒，命中检测只用 `mm_page_alloc`（alloc 事件全量可见）；
+- 判定 `pcp reclaim go (slab 8959 -> 4991, ...)` 出现即为进入喷洒阶段。
+
+其它设备不要设置（默认 0 = 原行为）。判别方法：fake 首次 plant 稳定
+`free_seen=0 hit=0` 且 `zombie code=2 status=9`，同时 slabinfo 显示 victim 退出后
+active/total/slabs 下降 → 即为 PCP 内核。
 
 ---
 
